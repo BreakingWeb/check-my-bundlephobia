@@ -61,25 +61,48 @@ exec(
       
       r.catch(e => console.log('->',e))
     });
-      Promise.all([Promise.all(requestsAdded), Promise.all(requestsRemoved)]).then(([sizesAdded, sizesRemoved]) => {
+
+      Promise.all([Promise.all(requestsAdded), Promise.all(requestsRemoved)]).then(async ([sizesAdded, sizesRemoved]) => {
         if (
           process.env.GITHUB_REF.split("refs/pull/") &&
           process.env.GITHUB_REPOSITORY.split("/") && sizesAdded.length
         ) {
-        const [owner, repositoryName] = process.env.GITHUB_REPOSITORY.split(
-          "/"
-        );
-
-        octokit.pulls.createReview({
-          owner,
-          repo: repositoryName,
-          pull_number: process.env.GITHUB_REF.split("refs/pull/")[1].split(
+          const [owner, repositoryName] = process.env.GITHUB_REPOSITORY.split(
             "/"
-          )[0],
-          body: utils.getMarkDownTable(sizesAdded, sizesRemoved),
-          event: sizesAdded.find(e => e.gzip > core.getInput('threshold')) && core.getInput('strict') ? 'REQUEST_CHANGES' : 'COMMENT'
-        });
-      }
+          );
+          const PRNumber = process.env.GITHUB_REF.split("refs/pull/")[1].split(
+            "/"
+          )[0];
+
+          const { data } = await octokit.pulls.listReviews({
+            owner,
+            repo: repositoryName,
+            pull_number: PRNumber,
+          })
+          
+          const payload = {
+            owner,
+            repo: repositoryName,
+            pull_number: process.env.GITHUB_REF.split("refs/pull/")[1].split(
+              "/"
+            )[0],
+            body: utils.getMarkDownTable(sizesAdded, sizesRemoved),
+            event: sizesAdded.find(e => e.gzip > core.getInput('threshold')) && core.getInput('strict') ? 'REQUEST_CHANGES' : 'COMMENT'
+          };
+
+          const review = data.find(r => r.user.login === 'github-actions[bot]' && r.body.indexOf('bundlephobia') !== -1);
+
+          if (review) {
+            octokit.pulls.updateReview({
+              ...payload,
+              event: undefined,
+              review_id: review.id,
+            })
+          } else {
+            octokit.pulls.createReview(payload);
+          }
+
+        }
       });
   }
 );
